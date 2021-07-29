@@ -21,14 +21,14 @@ def cli(coverage, reference, vcf, deg, no_deg, min_cov, width, split, alter_name
     if (no_deg):
         deg = (no_deg, no_deg)
 
-    cov_by_chrom = read_coverage(coverage)
+    cov_by_chrom = read_coverage(coverage, min_cov)
     ref_by_chrom = read_reference(reference)
     vcf_by_chrom = read_vcf(vcf)
     chroms = ref_by_chrom.keys()
 
     for chrom in chroms:
         cons_seq = create_consensus_sequence(
-            ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], deg, min_cov)
+            ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], deg)
 
 
 class Mutation():
@@ -52,15 +52,17 @@ class Mutation():
         return(f'Pos: {self.position}; Ref: {self.reference}; Alt: {self.alteration}; Freq: {self.frequency}')
 
 
-def read_coverage(cov_file: File) -> dict[str, dict[int, int]]:
-    chroms_cov = {}
+def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
+    '''Reads the coverage file and returns low coverage positions grouped by chromosome'''
+    chroms_cov: dict[str, list[int]] = {}
     for line in cov_file.read().split('\n'):
         if line == '':
             continue
         chrom, pos, cov = line.split('\t')
         if chrom not in chroms_cov:
-            chroms_cov[chrom] = {}
-        chroms_cov[chrom][int(pos)] = int(cov)
+            chroms_cov[chrom] = []
+        if int(cov) < min_cov:
+            chroms_cov[chrom].append(int(pos))
     return chroms_cov
 
 
@@ -97,7 +99,7 @@ def read_vcf(vcf_file: File) -> dict[str, dict[int, list[Mutation]]]:
     return chroms_vcf
 
 
-def create_consensus_sequence(seq: str, vcf: dict[int, list[Mutation]], cov: dict[int, int], lims: tuple[float, float], min_cov: int):
+def create_consensus_sequence(seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
     min_freq = lims[0]
     max_freq = lims[1]
     min_indel = 50.0
@@ -106,7 +108,7 @@ def create_consensus_sequence(seq: str, vcf: dict[int, list[Mutation]], cov: dic
 
     for pos in range(len(seq), 0, -1):
         index = pos - 1
-        if cov[pos] < min_cov:
+        if pos in cov:
             seq[index] = 'N'
             continue
         if pos in vcf:
