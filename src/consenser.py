@@ -1,37 +1,7 @@
 import click
 from click.exceptions import ClickException
 from click.types import File, Path
-
-
-@click.command()
-@click.option('-c', '--coverage', type=File('r'), required=True)
-@click.option('-r', '--reference', type=File('r'), required=True)
-@click.option('-v', '--vcf', type=File('r'), required=True)
-@click.option('-d', '--deg', type=float, nargs=2)
-@click.option('-n', '--no-deg', type=float, nargs=1)
-@click.option('-m', '--min-cov', type=int, default=10)
-@click.option('-w', '--width', type=int, default=70)
-@click.option('-s', '--split', type=Path())
-@click.option('-a', '--alter_names', type=str)
-@click.option('--indels-lim', type=float, default=50.0)
-def cli(coverage: File, reference: File, vcf: File, deg: tuple[float, float], no_deg: float,
-        min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
-    if not deg and not no_deg:
-        raise ClickException("'-d'/'--deg' or '-n'/--no-deg' is required")
-    if deg and no_deg:
-        raise ClickException("Use '-d'/'--deg' or '-n'/--no-deg', not both")
-    if (no_deg):
-        deg = (no_deg, no_deg)
-    af_lims = deg + (indels_lim,)
-
-    cov_by_chrom = read_coverage(coverage, min_cov)
-    ref_by_chrom = read_reference(reference)
-    vcf_by_chrom = read_vcf(vcf)
-    chroms = ref_by_chrom.keys()
-
-    for chrom in chroms:
-        cons_seq = create_consensus_sequence(
-            ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], af_lims)
+from copy import deepcopy
 
 
 class Mutation():
@@ -53,6 +23,53 @@ class Mutation():
 
     def __str__(self) -> str:
         return(f'Pos: {self.position}; Ref: {self.reference}; Alt: {self.alteration}; Freq: {self.frequency}')
+
+
+@click.command()
+@click.option('-c', '--coverage', type=File('r'), required=True)
+@click.option('-r', '--reference', type=File('r'), required=True)
+@click.option('-v', '--vcf', type=File('r'), required=True)
+@click.option('-o', '--output', type=File('w'), required=True)
+@click.option('-d', '--deg', type=float, nargs=2)
+@click.option('-n', '--no-deg', type=float, nargs=1)
+@click.option('-m', '--min-cov', type=int, default=10)
+@click.option('-w', '--width', type=int, default=70)
+@click.option('-s', '--split', type=Path())
+@click.option('-a', '--alter_names', type=str)
+@click.option('--indels-lim', type=float, default=50.0)
+def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[float, float], no_deg: float,
+        min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
+
+    af_lims = parse_limits(deg, no_deg, indels_lim)
+    cov_by_chrom = read_coverage(coverage, min_cov)
+    ref_by_chrom = read_reference(reference)
+    vcf_by_chrom = read_vcf(vcf)
+    chroms = ref_by_chrom.keys()
+
+    consensus = {}
+
+    for chrom in chroms:
+        cons_seq = create_consensus_sequence(
+            ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], af_lims)
+        cons_name = chrom
+        if alter_names:
+            cons_name = alter_names.replace("chromHere", chrom)
+        consensus[chrom] = (cons_name, cons_seq)
+
+    write_consensus(consensus, output, split, width)
+
+
+def parse_limits(deg: tuple[float, float], no_deg: float, indels_lim: float):
+    '''Perfrorms checks and setup limits'''
+    if not deg and not no_deg:
+        raise ClickException("'-d'/'--deg' or '-n'/--no-deg' is required")
+    if deg and no_deg:
+        raise ClickException("Use '-d'/'--deg' or '-n'/--no-deg', not both")
+    if (no_deg):
+        deg = (no_deg, no_deg)
+    if deg[1] < 50:
+        raise ClickException("The upper limit must be at least 50%")
+    return deg + (indels_lim,)
 
 
 def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
@@ -83,41 +100,50 @@ def read_reference(ref_file: File) -> dict[str, str]:
 
 
 def read_vcf(vcf_file: File) -> tuple[dict[str, dict[int, list[Mutation]]]]:
-    chroms_snps: dict[str, dict[int, list[Mutation]]] = {}
-    chroms_indels: dict[str, dict[int, list[Mutation]]] = {}
+    chroms_vcf: dict[str, dict[int, list[Mutation]]] = {}
     for line in vcf_file.read().split('\n'):
         if line == '' or line.startswith('#'):
             continue
         chrom, pos, _, ref, alt, _, _, info = line.split('\t')
+        pos = int(pos)
         infos = info.split(';')
         af = [i for i in infos if i.startswith('AF=')][0][3:]
         af = float(af)*100
-        mut = Mutation(chrom, int(pos), ref, alt, af)
+        mut = Mutation(chrom, pos, ref, alt, af)
 
-        mut_dict = chroms_snps
-        if mut.is_indel():
-            mut_dict = chroms_indels
+        if chrom not in chroms_vcf:
+            chroms_vcf[chrom] = {}
+        if pos not in chroms_vcf[chrom]:
+            chroms_vcf[chrom][pos] = []
 
-        if chrom not in chroms_snps:
-            mut_dict[chrom] = {}
-        if pos not in chroms_snps[chrom]:
-            mut_dict[chrom][pos] = []
-
-        mut_dict[chrom][pos].append(mut)
-    return chroms_snps, chroms_indels
+        chroms_vcf[chrom][pos].append(mut)
+    return chroms_vcf
 
 
-def create_consensus_sequence(seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
-    mutable_seq = list(seq)
+def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
+    seq = list(chrom_seq)
 
-    snps = select_snps(vcf, lims[:-1])
-    snps_seq = apply_snps(mutable_seq, snps)
+    for index in range(len(seq)):
+        pos = index + 1
+        if seq[index] == '#':
+            continue
+        if pos in vcf:
+            muts = vcf[pos]
+            check_reference(seq, muts[0])
+            snp, indel = parse_muts(muts, lims)
+            if snp:
+                seq[index] = snp.alteration
+            if indel:
+                seq = apply_indel(seq, indel)
+        if pos in cov:
+            seq[index] = 'N'
+    return ''.join(seq).replace('#', '')
 
-    cov_seq = mask_low_cov(snps_seq, cov)
 
-    indels = select_indels(vcf, lims[-1])
-    indels_seq = apply_indel(cov_seq, indels)
-    return ''.join(indels_seq)
+def parse_muts(muts: list[Mutation], lims: tuple[float, float, float]) -> tuple[Mutation, Mutation]:
+    snp = get_consensus_snp(muts, lims[:-1])
+    indel = get_consensus_indel(muts, lims[-1])
+    return snp, indel
 
 
 def check_reference(seq: list[str], mut: Mutation) -> None:
@@ -135,73 +161,44 @@ def get_consensus_indel(muts: list[Mutation], freq_min: float) -> Mutation:
     return indels[0] if indels else None
 
 
-def get_consensus_snps(muts: list[Mutation], freq_min: float) -> list[Mutation]:
-    '''Returns the mutations over the minimum frequency'''
-    return [m for m in muts if not m.is_indel() and m.frequency >= freq_min]
-
-
-def mask_low_cov(seq: list[str], cov: list[int]):
-    for pos in cov:
-        seq[pos - 1] = 'N'
-    return seq
-
-
-def apply_snps(seq: list[str], snps: list[Mutation]) -> list[str]:
-    for mut in snps:
-        check_reference(seq, mut)
-        seq[mut.position - 1] = to_iupac(mut.alteration)
-    return seq
-
-
-def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
-    if indel.is_deletion():
-        start = indel.position
-        end = indel.position + len(indel.reference) - 1
-        seq = seq[:start] + seq[end:]
-    else:
-        seq = seq[:indel.position] + \
-            list(indel.alteration[1:]) + seq[indel.position:]
-    return seq
-
-
-def select_snps(vcf: dict[int, list[Mutation]], lims: tuple[float, float]) -> list[Mutation]:
-    snps = []
-    for pos in vcf:
-        snp = select_snp(vcf[pos], lims)
-        snps.append(snp)
-    return snps
-
-
-def select_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutation:
+def get_consensus_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutation:
+    '''Creates the snp that best fits parameters'''
     min_freq, max_freq = lims
     snps = [m for m in muts if not m.is_indel()]
-    snps.sort(key=lambda m: m.frequency, reverse=True)
+    degs: list[Mutation] = []
 
     if not snps:
         return None
 
-    if snps[0].frequency >= max_freq:
-        return snps[0].alteration
-
-    ref_freq = 100
-    degs = ''
+    # Create a Mutation class to use with reference nucleotide
+    ref = deepcopy(snps[0])
+    ref.frequency = 100.0
+    ref.alteration = ref.reference
 
     for snp in snps:
-        if snp.frequency >= min_freq:
-            degs += snp.alteration
-        ref_freq -= snp.frequency
-    if ref_freq >= max_freq:
-        return snp.reference
-    if ref_freq >= min_freq:
-        degs += snp.reference
-    return to_iupac(degs)
-
-
-def degenerate_snp(snps: list[Mutation], max_freq: float) -> Mutation:
-    deg_str = ''
-    for snp in snps:
-        if snp.frequency >= max_freq:
+        if snps[0].frequency >= max_freq:
             return snp
+        if snp.frequency >= min_freq:
+            degs.append(snp)
+        ref.frequency -= snp.frequency
+
+    if ref.frequency >= max_freq:
+        return None
+    if ref.frequency >= min_freq:
+        degs.append(ref)
+
+    return degenerate(degs)
+
+
+def degenerate(degs: list[Mutation]) -> Mutation:
+    m = degs[0]
+    result = Mutation(m.chromosome, m.position, m.reference, '', 0)
+
+    for mut in degs:
+        result.alteration += mut.alteration
+        result.frequency += mut.frequency
+    result.alteration = to_iupac(result.alteration)
+    return result
 
 
 def to_iupac(nucls: str) -> str:
@@ -209,11 +206,44 @@ def to_iupac(nucls: str) -> str:
     return iupac_names[sorted_nucls]
 
 
+def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
+    if indel.is_insertion():
+        index = indel.position - 1
+        seq[index] += indel.alteration[1:]
+        return seq
+    for i in range(len(indel.reference) - 1):
+        seq[indel.position + i] = '#'
+    return seq
+
+
 iupac_names = {
     'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T',
     'AC': 'M', 'AG': 'R', 'AT': 'W', 'CG': 'S', 'CT': 'Y',  'GT': 'K',
     'ACG': 'V', 'ACT': 'H', 'AGT': 'D', 'CGT': 'B',
     'ACGT': 'N'}
+
+
+def write_consensus(cons: dict[str, (str, str)], out: File, split: str, width: int):
+    for chrom in cons:
+        name, seq = cons[chrom]
+        name = f'>{name}'
+        fasta = fasta_format(seq, width)
+        fasta.insert(0, name)
+
+        write_fasta(fasta, out)
+        if split:
+            f_path = split.replace('chromHere', chrom)
+            with open(f_path, 'w') as f:
+                write_fasta(fasta, f)
+
+
+def write_fasta(lines: list[str], out:File) -> None:
+    for line in lines:
+        out.write(f'{line}\n')
+
+
+def fasta_format(seq: str, width: int) -> list[str]:
+    return [seq[i:width+i] for i in range(0, len(seq), width)]
 
 
 if __name__ == '__main__':
