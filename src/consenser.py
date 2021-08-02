@@ -26,20 +26,20 @@ class Mutation():
 
 
 @click.command()
-@click.option('-c', '--coverage', type=File('r'), required=True)
-@click.option('-r', '--reference', type=File('r'), required=True)
-@click.option('-v', '--vcf', type=File('r'), required=True)
-@click.option('-o', '--output', type=File('w'), required=True)
-@click.option('-d', '--deg', type=float, nargs=2)
-@click.option('-n', '--no-deg', type=float, nargs=1)
-@click.option('-m', '--min-cov', type=int, default=10)
-@click.option('-w', '--width', type=int, default=70)
-@click.option('-s', '--split', type=Path())
-@click.option('-a', '--alter_names', type=str)
-@click.option('--indels-lim', type=float, default=50.0)
+@click.option('-c', '--coverage', type=File('r'), required=True, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
+@click.option('-r', '--reference', type=File('r'), required=True, help='The reference file in fasta format.')
+@click.option('-v', '--vcf', type=File('r'), required=True, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
+@click.option('-o', '--output', type=File('w'), default='-', help='The output file. [default: stout]')
+@click.option('-d', '--deg', type=float, nargs=2, help='The upper and lower limit to insert a degeneration; in percentage.')
+@click.option('-n', '--no-deg', type=float, nargs=1, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
+@click.option('-m', '--min-cov', type=int, default=10, show_default=True, help='Minimum coverage to not mask a base.')
+@click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
+@click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "chromHere" in the path will be replaced with the original sequence name.')
+@click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "chrmoHere" will be replaced with the original sequence name.')
+@click.option('--indels-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
 def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[float, float], no_deg: float,
         min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
-
+    '''Creates a consensus sequence from a reference and the VCF file. Low coverage regions are masked using the coverage file.'''
     af_lims = parse_limits(deg, no_deg, indels_lim)
     cov_by_chrom = read_coverage(coverage, min_cov)
     ref_by_chrom = read_reference(reference)
@@ -59,12 +59,12 @@ def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[flo
     write_consensus(consensus, output, split, width)
 
 
-def parse_limits(deg: tuple[float, float], no_deg: float, indels_lim: float):
+def parse_limits(deg: tuple[float, float], no_deg: float, indels_lim: float) -> tuple[float, float, float]:
     '''Perfrorms checks and setup limits'''
     if not deg and not no_deg:
-        raise ClickException("'-d'/'--deg' or '-n'/--no-deg' is required")
+        raise ClickException("'-d'/'--deg' or '-n'/'--no-deg' is required")
     if deg and no_deg:
-        raise ClickException("Use '-d'/'--deg' or '-n'/--no-deg', not both")
+        raise ClickException("Use '-d'/'--deg' or '-n'/'--no-deg', not both")
     if (no_deg):
         deg = (no_deg, no_deg)
     if deg[1] < 50:
