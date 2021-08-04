@@ -3,6 +3,10 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
+__version__ = '0.0.0'
+__author__ = 'EdoardoGiussani'
+__contact__ = 'egiussani@izsvenezie.it'
+
 
 class Mutation():
     def __init__(self, chrom: str, pos: int, ref: str, alt: str, freq: float) -> None:
@@ -26,6 +30,8 @@ class Mutation():
 
 
 @click.command()
+@click.help_option('-h', '--help')
+@click.version_option(__version__, '-v', '--version', message=f'%(prog)s, version %(version)s, by {__author__} ({__contact__})')
 @click.option('-c', '--coverage', type=File('r'), required=True, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-r', '--reference', type=File('r'), required=True, help='The reference file in fasta format.')
 @click.option('-v', '--vcf', type=File('r'), required=True, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
@@ -34,8 +40,8 @@ class Mutation():
 @click.option('-n', '--no-deg', type=float, nargs=1, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
 @click.option('-m', '--min-cov', type=int, default=10, show_default=True, help='Minimum coverage to not mask a base.')
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
-@click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "chromHere" in the path will be replaced with the original sequence name.')
-@click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "chrmoHere" will be replaced with the original sequence name.')
+@click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
+@click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
 @click.option('--indels-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
 def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[float, float], no_deg: float,
         min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
@@ -53,7 +59,7 @@ def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[flo
             ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], af_lims)
         cons_name = chrom
         if alter_names:
-            cons_name = alter_names.replace("chromHere", chrom)
+            cons_name = alter_names.replace("CHROMNAME", chrom)
         consensus[chrom] = (cons_name, cons_seq)
 
     write_consensus(consensus, output, split, width)
@@ -87,6 +93,7 @@ def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
 
 
 def read_reference(ref_file: File) -> dict[str, str]:
+    '''Reads the reference from a Fasta file and return the sequence by name'''
     chroms_ref = {}
     for line in ref_file.read().split('\n'):
         if line == '':
@@ -99,7 +106,8 @@ def read_reference(ref_file: File) -> dict[str, str]:
     return chroms_ref
 
 
-def read_vcf(vcf_file: File) -> tuple[dict[str, dict[int, list[Mutation]]]]:
+def read_vcf(vcf_file: File) -> dict[str, dict[int, list[Mutation]]]:
+    '''Reads the VCF file and returns all mutations grouped by chromosome and position'''
     chroms_vcf: dict[str, dict[int, list[Mutation]]] = {}
     for line in vcf_file.read().split('\n'):
         if line == '' or line.startswith('#'):
@@ -121,6 +129,7 @@ def read_vcf(vcf_file: File) -> tuple[dict[str, dict[int, list[Mutation]]]]:
 
 
 def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
+    '''Creates the consensus sequence.'''
     seq = list(chrom_seq)
 
     for index in range(len(seq)):
@@ -141,6 +150,7 @@ def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], co
 
 
 def parse_muts(muts: list[Mutation], lims: tuple[float, float, float]) -> tuple[Mutation, Mutation]:
+    '''Select consensus snps and indel'''
     snp = get_consensus_snp(muts, lims[:-1])
     indel = get_consensus_indel(muts, lims[-1])
     return snp, indel
@@ -191,6 +201,7 @@ def get_consensus_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutati
 
 
 def degenerate(degs: list[Mutation]) -> Mutation:
+    '''Returns a degenerated Mutation'''
     m = degs[0]
     result = Mutation(m.chromosome, m.position, m.reference, '', 0)
 
@@ -202,11 +213,13 @@ def degenerate(degs: list[Mutation]) -> Mutation:
 
 
 def to_iupac(nucls: str) -> str:
+    '''Returns the IUPAC nomenclature of one or more nucleotides'''
     sorted_nucls = ''.join(sorted(nucls))
     return iupac_names[sorted_nucls]
 
 
 def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
+    '''Insert or delete the indel in the consensus'''
     if indel.is_insertion():
         index = indel.position - 1
         seq[index] += indel.alteration[1:]
@@ -224,6 +237,7 @@ iupac_names = {
 
 
 def write_consensus(cons: dict[str, (str, str)], out: File, split: str, width: int):
+    '''Write the consensus sequences to Fasta file'''
     for chrom in cons:
         name, seq = cons[chrom]
         name = f'>{name}'
@@ -232,17 +246,19 @@ def write_consensus(cons: dict[str, (str, str)], out: File, split: str, width: i
 
         write_fasta(fasta, out)
         if split:
-            f_path = split.replace('chromHere', chrom)
+            f_path = split.replace('CHROMNAME', chrom)
             with open(f_path, 'w') as f:
                 write_fasta(fasta, f)
 
 
-def write_fasta(lines: list[str], out:File) -> None:
+def write_fasta(lines: list[str], out: File) -> None:
+    '''Writes lines to the file'''
     for line in lines:
         out.write(f'{line}\n')
 
 
 def fasta_format(seq: str, width: int) -> list[str]:
+    '''Get a sequence and returns a list of subsequence of specified len'''
     return [seq[i:width+i] for i in range(0, len(seq), width)]
 
 
