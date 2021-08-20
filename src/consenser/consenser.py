@@ -32,9 +32,9 @@ class Mutation():
 @click.command()
 @click.help_option('-h', '--help')
 @click.version_option(__version__, '-v', '--version', message=f'%(prog)s, version %(version)s, by {__author__} ({__contact__})')
-@click.option('-c', '--coverage', type=File('r'), required=True, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-r', '--reference', type=File('r'), required=True, help='The reference file in fasta format.')
 @click.option('-v', '--vcf', type=File('r'), required=True, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
+@click.option('-c', '--coverage', type=File('r'), default=None, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-o', '--output', type=File('w'), default='-', help='The output file. [default: stout]')
 @click.option('-d', '--deg', type=float, nargs=2, help='The upper and lower limit to insert a degeneration; in percentage.')
 @click.option('-n', '--no-deg', type=float, nargs=1, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
@@ -43,7 +43,7 @@ class Mutation():
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
 @click.option('--indels-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
-def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[float, float], no_deg: float,
+def cli(reference: File, vcf: File, coverage: File, output: File, deg: tuple[float, float], no_deg: float,
         min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
     '''Creates a consensus sequence from a reference and the VCF file. Low coverage regions are masked using the coverage file.'''
     af_lims = parse_limits(deg, no_deg, indels_lim)
@@ -55,8 +55,11 @@ def cli(coverage: File, reference: File, vcf: File, output: File, deg: tuple[flo
     consensus = {}
 
     for chrom in chroms:
+        chrom_cov = cov_by_chrom.get(chrom, [])
+        chrom_vcf = vcf_by_chrom.get(chrom, [])
+        chrom_ref = ref_by_chrom.get(chrom)
         cons_seq = create_consensus_sequence(
-            ref_by_chrom[chrom], vcf_by_chrom[chrom], cov_by_chrom[chrom], af_lims)
+            chrom_ref, chrom_vcf, chrom_cov, af_lims)
         cons_name = chrom
         if alter_names:
             cons_name = alter_names.replace("CHROMNAME", chrom)
@@ -81,6 +84,8 @@ def parse_limits(deg: tuple[float, float], no_deg: float, indels_lim: float) -> 
 def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
     '''Reads the coverage file and returns low coverage positions grouped by chromosome'''
     chroms_cov: dict[str, list[int]] = {}
+    if not cov_file:
+        return chroms_cov
     for line in cov_file.read().split('\n'):
         if line == '':
             continue
