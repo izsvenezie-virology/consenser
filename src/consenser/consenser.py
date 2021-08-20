@@ -32,21 +32,21 @@ class Mutation():
 @click.command()
 @click.help_option('-h', '--help')
 @click.version_option(__version__, '-v', '--version', message=f'%(prog)s, version %(version)s, by {__author__} ({__contact__})')
-@click.option('-r', '--reference', type=File('r'), required=True, help='The reference file in fasta format.')
-@click.option('-v', '--vcf', type=File('r'), required=True, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
 @click.option('-c', '--coverage', type=File('r'), default=None, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-o', '--output', type=File('w'), default='-', help='The output file. [default: stout]')
-@click.option('-d', '--deg', type=float, nargs=2, help='The upper and lower limit to insert a degeneration; in percentage.')
-@click.option('-n', '--no-deg', type=float, nargs=1, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
+@click.option('-d', '--deg', is_flag=True, help='The upper and lower limit to insert a degeneration; in percentage.')
 @click.option('-m', '--min-cov', type=int, default=10, show_default=True, help='Minimum coverage to not mask a base.')
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
-@click.option('--indels-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
-def cli(reference: File, vcf: File, coverage: File, output: File, deg: tuple[float, float], no_deg: float,
-        min_cov: int, width: int, split: Path, alter_names: str, indels_lim: float):
+@click.option('--snp-lim', default=None, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
+@click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
+@click.argument('reference', type=File('r'), help='The reference file in fasta format.')
+@click.argument('vcf', type=File('r'), help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
+def cli(reference: File, vcf: File, coverage: File, output: File, deg: bool,
+        min_cov: int, width: int, split: Path, alter_names: str, snp_lim: tuple[float, float], indel_lim: float):
     '''Creates a consensus sequence from a reference and the VCF file. Low coverage regions are masked using the coverage file.'''
-    af_lims = parse_limits(deg, no_deg, indels_lim)
+    af_lims = parse_limits(deg, snp_lim, indel_lim)
     cov_by_chrom = read_coverage(coverage, min_cov)
     ref_by_chrom = read_reference(reference)
     vcf_by_chrom = read_vcf(vcf)
@@ -68,17 +68,15 @@ def cli(reference: File, vcf: File, coverage: File, output: File, deg: tuple[flo
     write_consensus(consensus, output, split, width)
 
 
-def parse_limits(deg: tuple[float, float], no_deg: float, indels_lim: float) -> tuple[float, float, float]:
+def parse_limits(deg: bool, snp_lim: float, indels_lim: float) -> tuple[float, float, float]:
     '''Perfrorms checks and setup limits'''
-    if not deg and not no_deg:
-        raise ClickException("'-d'/'--deg' or '-n'/'--no-deg' is required")
-    if deg and no_deg:
-        raise ClickException("Use '-d'/'--deg' or '-n'/'--no-deg', not both")
-    if (no_deg):
-        deg = (no_deg, no_deg)
-    if deg[1] < 50:
-        raise ClickException("The upper limit must be at least 50%")
-    return deg + (indels_lim,)
+    if deg:
+        if not snp_lim:
+            snp_lim = 25.0
+        return (snp_lim, 100-snp_lim, indels_lim)
+    if not snp_lim:
+        snp_lim = 50.0
+    return (deg[0], snp_lim[0], indels_lim)
 
 
 def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
