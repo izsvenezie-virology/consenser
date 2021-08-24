@@ -1,9 +1,11 @@
+#! /usr/bin/env python3
+
 import click
 from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.0.0'
+__version__ = '0.1.0'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -39,7 +41,7 @@ class Mutation():
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
-@click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-0.75 with --deg]')
+@click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-75.0 with --deg]')
 @click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
 @click.argument('reference', type=File('r'))#, help='The reference file in fasta format.')
 @click.argument('vcf', type=File('r'))#, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
