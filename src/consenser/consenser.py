@@ -34,17 +34,17 @@ class Mutation():
 @click.version_option(__version__, '-v', '--version', message=f'%(prog)s, version %(version)s, by {__author__} ({__contact__})')
 @click.option('-c', '--coverage', type=File('r'), default=None, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-o', '--output', type=File('w'), default='-', help='The output file. [default: stout]')
-@click.option('-d', '--deg', is_flag=True, help='The upper and lower limit to insert a degeneration; in percentage.')
+@click.option('-d', '--deg', is_flag=True, default=False, help='Produces a degenerated consensus.')
 @click.option('-m', '--min-cov', type=int, default=10, show_default=True, help='Minimum coverage to not mask a base.')
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
-@click.option('--snp-lim', default=None, help='The minimum AF percentage to consider a snp. It avoids degenerations.')
+@click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-0.75 with --deg]')
 @click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
-@click.argument('reference', type=File('r'), help='The reference file in fasta format.')
-@click.argument('vcf', type=File('r'), help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
+@click.argument('reference', type=File('r'))#, help='The reference file in fasta format.')
+@click.argument('vcf', type=File('r'))#, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
 def cli(reference: File, vcf: File, coverage: File, output: File, deg: bool,
-        min_cov: int, width: int, split: Path, alter_names: str, snp_lim: tuple[float, float], indel_lim: float):
+        min_cov: int, width: int, split: Path, alter_names: str, snp_lim: str, indel_lim: float):
     '''Creates a consensus sequence from a reference and the VCF file. Low coverage regions are masked using the coverage file.'''
     af_lims = parse_limits(deg, snp_lim, indel_lim)
     cov_by_chrom = read_coverage(coverage, min_cov)
@@ -68,15 +68,34 @@ def cli(reference: File, vcf: File, coverage: File, output: File, deg: bool,
     write_consensus(consensus, output, split, width)
 
 
-def parse_limits(deg: bool, snp_lim: float, indels_lim: float) -> tuple[float, float, float]:
+def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> tuple[float, float, float]:
     '''Perfrorms checks and setup limits'''
-    if deg:
-        if not snp_lim:
-            snp_lim = 25.0
-        return (snp_lim, 100-snp_lim, indels_lim)
     if not snp_lim:
-        snp_lim = 50.0
-    return (deg[0], snp_lim[0], indels_lim)
+        lims = parse_lim_default(deg)
+    elif '-' in snp_lim:
+        lims = parse_lim_range(snp_lim, deg)
+    else:
+        lims = parse_lim_value(snp_lim, deg)
+    return lims + (indels_lim, )
+
+
+def parse_lim_range(snp_lim: str, deg: bool) -> tuple[float, float]:
+    if not deg:
+        raise ClickException(
+            f"Can't use a limit range without option --deg: --snp-lim {snp_lim}")
+    return tuple(map(float, snp_lim.split('-')))
+
+
+def parse_lim_value(snp_lim: str, deg: bool) -> tuple[float, float]:
+    lim = float(snp_lim)
+    if deg:
+        return (lim, 100-lim)
+    return (lim, lim)
+
+
+def parse_lim_default(deg: bool) -> tuple[float, float]:
+    defaults = {True: (25.0, 75.0), False: (50.0, 50.0)}
+    return defaults[deg]
 
 
 def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
@@ -152,19 +171,19 @@ def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], co
     return ''.join(seq).replace('#', '')
 
 
+def check_reference(seq: list[str], mut: Mutation) -> None:
+    '''Checks if reference and mutation's reference match'''
+    index = mut.position - 1
+    if seq[index].upper() != mut.reference[0].upper():
+        msg = f'Mismatch between vcf ({mut.reference[0]}) and reference ({seq[index]}) at position {mut.position}'
+        raise ValueError(msg)
+
+
 def parse_muts(muts: list[Mutation], lims: tuple[float, float, float]) -> tuple[Mutation, Mutation]:
     '''Select consensus snps and indel'''
     snp = get_consensus_snp(muts, lims[:-1])
     indel = get_consensus_indel(muts, lims[-1])
     return snp, indel
-
-
-def check_reference(seq: list[str], mut: Mutation) -> None:
-    '''Checks if reference and mutation's reference match'''
-    index = mut.position - 1
-    if seq[index] != mut.reference[0]:
-        msg = f'Mismatch between mutation and reference at position {mut.position}'
-        raise ValueError(msg)
 
 
 def get_consensus_indel(muts: list[Mutation], freq_min: float) -> Mutation:
@@ -215,12 +234,6 @@ def degenerate(degs: list[Mutation]) -> Mutation:
     return result
 
 
-def to_iupac(nucls: str) -> str:
-    '''Returns the IUPAC nomenclature of one or more nucleotides'''
-    sorted_nucls = ''.join(sorted(nucls))
-    return iupac_names[sorted_nucls]
-
-
 def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
     '''Insert or delete the indel in the consensus'''
     if indel.is_insertion():
@@ -232,6 +245,12 @@ def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
     return seq
 
 
+def to_iupac(nucls: str) -> str:
+    '''Returns the IUPAC nomenclature of one or more nucleotides'''
+    sorted_nucls = ''.join(sorted(nucls))
+    return iupac_names[sorted_nucls]
+
+
 iupac_names = {
     'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T',
     'AC': 'M', 'AG': 'R', 'AT': 'W', 'CG': 'S', 'CT': 'Y',  'GT': 'K',
@@ -239,10 +258,10 @@ iupac_names = {
     'ACGT': 'N'}
 
 
-def write_consensus(cons: dict[str, (str, str)], out: File, split: str, width: int):
+def write_consensus(consensus: dict[str, (str, str)], out: File, split: str, width: int) -> None:
     '''Write the consensus sequences to Fasta file'''
-    for chrom in cons:
-        name, seq = cons[chrom]
+    for chrom in consensus:
+        name, seq = consensus[chrom]
         name = f'>{name}'
         fasta = fasta_format(seq, width)
         fasta.insert(0, name)
