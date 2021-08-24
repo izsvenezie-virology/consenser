@@ -155,9 +155,9 @@ def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], co
     seq = list(chrom_seq)
 
     for index in range(len(seq)):
-        pos = index + 1
         if seq[index] == '#':
             continue
+        pos = index + 1
         if pos in vcf:
             muts = vcf[pos]
             check_reference(seq, muts[0])
@@ -208,13 +208,13 @@ def get_consensus_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutati
     ref.alteration = ref.reference
 
     for snp in snps:
-        if snps[0].frequency >= max_freq:
+        if snps[0].frequency > max_freq:
             return snp
         if snp.frequency >= min_freq:
             degs.append(snp)
         ref.frequency -= snp.frequency
 
-    if ref.frequency >= max_freq:
+    if ref.frequency > max_freq:
         return None
     if ref.frequency >= min_freq:
         degs.append(ref)
@@ -234,17 +234,6 @@ def degenerate(degs: list[Mutation]) -> Mutation:
     return result
 
 
-def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
-    '''Insert or delete the indel in the consensus'''
-    if indel.is_insertion():
-        index = indel.position - 1
-        seq[index] += indel.alteration[1:]
-        return seq
-    for i in range(len(indel.reference) - 1):
-        seq[indel.position + i] = '#'
-    return seq
-
-
 def to_iupac(nucls: str) -> str:
     '''Returns the IUPAC nomenclature of one or more nucleotides'''
     sorted_nucls = ''.join(sorted(nucls))
@@ -256,6 +245,17 @@ iupac_names = {
     'AC': 'M', 'AG': 'R', 'AT': 'W', 'CG': 'S', 'CT': 'Y',  'GT': 'K',
     'ACG': 'V', 'ACT': 'H', 'AGT': 'D', 'CGT': 'B',
     'ACGT': 'N'}
+
+
+def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
+    '''Insert or delete the indel in the consensus'''
+    if indel.is_insertion():
+        index = indel.position - 1
+        seq[index] += indel.alteration[1:]
+        return seq
+    for i in range(len(indel.reference) - 1):
+        seq[indel.position + i] = '#'
+    return seq
 
 
 def write_consensus(consensus: dict[str, (str, str)], out: File, split: str, width: int) -> None:
