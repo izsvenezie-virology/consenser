@@ -5,7 +5,7 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -28,7 +28,7 @@ class Mutation():
         return len(self.alteration) > 1
 
     def __str__(self) -> str:
-        return(f'Pos: {self.position}; Ref: {self.reference}; Alt: {self.alteration}; Freq: {self.frequency}')
+        return(f'{self.chromosome}\t{self.position}\t{self.reference}\t{self.alteration}\t{self.frequency}')
 
 
 @click.command()
@@ -36,6 +36,8 @@ class Mutation():
 @click.version_option(__version__, '-v', '--version', message=f'%(prog)s, version %(version)s, by {__author__} ({__contact__})')
 @click.option('-c', '--coverage', type=File('r'), default=None, help='The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.')
 @click.option('-o', '--output', type=File('w'), default='-', help='The output file. [default: stout]')
+@click.option('-i', '--indels', type=File('w'), help='Output file containing consensus indels.')
+@click.option('-p', '--snps', type=File('w'), help='Output file containing consensus snps.')
 @click.option('-d', '--deg', is_flag=True, default=False, help='Produces a degenerated consensus.')
 @click.option('-m', '--min-cov', type=int, default=10, show_default=True, help='Minimum coverage to not mask a base.')
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
@@ -43,11 +45,16 @@ class Mutation():
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
 @click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-75.0 with --deg]')
 @click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
-@click.argument('reference', type=File('r'))#, help='The reference file in fasta format.')
-@click.argument('vcf', type=File('r'))#, help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
-def cli(reference: File, vcf: File, coverage: File, output: File, deg: bool,
+# , help='The reference file in fasta format.')
+@click.argument('reference', type=File('r'))
+# , help='The VCF file. This file must contain the allele frequency ("AF=") in the INFO column.')
+@click.argument('vcf', type=File('r'))
+def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, snps: File, deg: bool,
         min_cov: int, width: int, split: Path, alter_names: str, snp_lim: str, indel_lim: float):
-    '''Creates a consensus sequence from a reference and the VCF file. Low coverage regions are masked using the coverage file.'''
+    '''Creates a consensus sequence from the reference and the VCF file.
+    \b
+    REFERENCE           Reference used during alignment in Fasta format.\b    
+    VCF                 VCF file.'''
     af_lims = parse_limits(deg, snp_lim, indel_lim)
     cov_by_chrom = read_coverage(coverage, min_cov)
     ref_by_chrom = read_reference(reference)
@@ -55,19 +62,27 @@ def cli(reference: File, vcf: File, coverage: File, output: File, deg: bool,
     chroms = ref_by_chrom.keys()
 
     consensus = {}
+    consensus_snps = []
+    consensus_indels = []
 
     for chrom in chroms:
         chrom_cov = cov_by_chrom.get(chrom, [])
         chrom_vcf = vcf_by_chrom.get(chrom, [])
         chrom_ref = ref_by_chrom.get(chrom)
-        cons_seq = create_consensus_sequence(
+        cons_seq, chrom_snps, chrom_indels = create_consensus_sequence(
             chrom_ref, chrom_vcf, chrom_cov, af_lims)
         cons_name = chrom
         if alter_names:
             cons_name = alter_names.replace("CHROMNAME", chrom)
         consensus[chrom] = (cons_name, cons_seq)
+        consensus_snps += chrom_snps
+        consensus_indels += chrom_indels
 
     write_consensus(consensus, output, split, width)
+    if snps:
+        write_muts(consensus_snps, snps)
+    if indels:
+        write_muts(consensus_indels, indels)
 
 
 def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> tuple[float, float, float]:
@@ -155,6 +170,8 @@ def read_vcf(vcf_file: File) -> dict[str, dict[int, list[Mutation]]]:
 def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
     '''Creates the consensus sequence.'''
     seq = list(chrom_seq)
+    snps = []
+    indels = []
 
     for index in range(len(seq)):
         if seq[index] == '#':
@@ -166,11 +183,13 @@ def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], co
             snp, indel = parse_muts(muts, lims)
             if snp:
                 seq[index] = snp.alteration
+                snps.append(snp)
             if indel:
                 seq = apply_indel(seq, indel)
+                indels.append(indel)
         if pos in cov:
             seq[index] = 'N'
-    return ''.join(seq).replace('#', '')
+    return ''.join(seq).replace('#', ''), snps, indels
 
 
 def check_reference(seq: list[str], mut: Mutation) -> None:
@@ -284,6 +303,13 @@ def write_fasta(lines: list[str], out: File) -> None:
 def fasta_format(seq: str, width: int) -> list[str]:
     '''Get a sequence and returns a list of subsequence of specified len'''
     return [seq[i:width+i] for i in range(0, len(seq), width)]
+
+
+def write_muts(muts: list[Mutation], muts_file: File):
+    muts_file.write(
+        '#Chromosome\tPosition\tReference\tAlteration\tFrequency\n')
+    for mut in muts:
+        muts_file.write(f'{mut}\n')
 
 
 if __name__ == '__main__':
