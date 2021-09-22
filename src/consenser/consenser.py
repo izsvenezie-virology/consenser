@@ -1,11 +1,12 @@
 #! /usr/bin/env python3
 
+from typing import Dict, List, Tuple
 import click
 from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -83,7 +84,7 @@ def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, 
         write_muts(consensus_indels, indels)
 
 
-def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> tuple[float, float, float]:
+def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> Tuple[float, float, float]:
     '''Perfrorms checks and setup limits'''
     if not snp_lim:
         lims = parse_lim_default(deg)
@@ -94,28 +95,28 @@ def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> tuple[float, flo
     return lims + (indels_lim, )
 
 
-def parse_lim_range(snp_lim: str, deg: bool) -> tuple[float, float]:
+def parse_lim_range(snp_lim: str, deg: bool) -> Tuple[float, float]:
     if not deg:
         raise ClickException(
             f"Can't use a limit range without option --deg: --snp-lim {snp_lim}")
     return tuple(map(float, snp_lim.split('-')))
 
 
-def parse_lim_value(snp_lim: str, deg: bool) -> tuple[float, float]:
+def parse_lim_value(snp_lim: str, deg: bool) -> Tuple[float, float]:
     lim = float(snp_lim)
     if deg:
         return (lim, 100-lim)
     return (lim, lim)
 
 
-def parse_lim_default(deg: bool) -> tuple[float, float]:
+def parse_lim_default(deg: bool) -> Tuple[float, float]:
     defaults = {True: (25.0, 75.0), False: (50.0, 50.0)}
     return defaults[deg]
 
 
-def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
+def read_coverage(cov_file: File, min_cov: int) -> Dict[str, List[int]]:
     '''Reads the coverage file and returns low coverage positions grouped by chromosome'''
-    chroms_cov: dict[str, list[int]] = {}
+    chroms_cov: Dict[str, List[int]] = {}
     if not cov_file:
         return chroms_cov
     for line in cov_file.read().split('\n'):
@@ -129,7 +130,7 @@ def read_coverage(cov_file: File, min_cov: int) -> dict[str, list[int]]:
     return chroms_cov
 
 
-def read_reference(ref_file: File) -> dict[str, str]:
+def read_reference(ref_file: File) -> Dict[str, str]:
     '''Reads the reference from a Fasta file and return the sequence by name'''
     chroms_ref = {}
     for line in ref_file.read().split('\n'):
@@ -143,9 +144,9 @@ def read_reference(ref_file: File) -> dict[str, str]:
     return chroms_ref
 
 
-def read_vcf(vcf_file: File) -> dict[str, dict[int, list[Mutation]]]:
+def read_vcf(vcf_file: File) -> Dict[str, Dict[int, List[Mutation]]]:
     '''Reads the VCF file and returns all mutations grouped by chromosome and position'''
-    chroms_vcf: dict[str, dict[int, list[Mutation]]] = {}
+    chroms_vcf: Dict[str, Dict[int, List[Mutation]]] = {}
     for line in vcf_file.read().split('\n'):
         if line == '' or line.startswith('#'):
             continue
@@ -165,7 +166,7 @@ def read_vcf(vcf_file: File) -> dict[str, dict[int, list[Mutation]]]:
     return chroms_vcf
 
 
-def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], cov: list, lims: tuple[float, float]):
+def create_consensus_sequence(chrom_seq: str, vcf: Dict[int, List[Mutation]], cov: List[int], lims: Tuple[float, float]):
     '''Creates the consensus sequence.'''
     seq = list(chrom_seq)
     snps = []
@@ -190,7 +191,7 @@ def create_consensus_sequence(chrom_seq: str, vcf: dict[int, list[Mutation]], co
     return ''.join(seq).replace('#', ''), snps, indels
 
 
-def check_reference(seq: list[str], mut: Mutation) -> None:
+def check_reference(seq: List[str], mut: Mutation) -> None:
     '''Checks if reference and mutation's reference match'''
     index = mut.position - 1
     if seq[index].upper() != mut.reference[0].upper():
@@ -198,25 +199,25 @@ def check_reference(seq: list[str], mut: Mutation) -> None:
         raise ValueError(msg)
 
 
-def parse_muts(muts: list[Mutation], lims: tuple[float, float, float]) -> tuple[Mutation, Mutation]:
+def parse_muts(muts: List[Mutation], lims: Tuple[float, float, float]) -> Tuple[Mutation, Mutation]:
     '''Select consensus snps and indel'''
     snp = get_consensus_snp(muts, lims[:-1])
     indel = get_consensus_indel(muts, lims[-1])
     return snp, indel
 
 
-def get_consensus_indel(muts: list[Mutation], freq_min: float) -> Mutation:
+def get_consensus_indel(muts: List[Mutation], freq_min: float) -> Mutation:
     '''Returns the indel to insert/delete from consensus sequence'''
     indels = [m for m in muts if m.is_indel() and m.frequency >= freq_min]
     indels.sort(key=lambda m: m.frequency, reverse=True)
     return indels[0] if indels else None
 
 
-def get_consensus_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutation:
+def get_consensus_snp(muts: List[Mutation], lims: Tuple[float, float]) -> Mutation:
     '''Creates the snp that best fits parameters'''
     min_freq, max_freq = lims
     snps = [m for m in muts if not m.is_indel()]
-    degs: list[Mutation] = []
+    degs: List[Mutation] = []
 
     if not snps:
         return None
@@ -241,7 +242,7 @@ def get_consensus_snp(muts: list[Mutation], lims: tuple[float, float]) -> Mutati
     return degenerate(degs)
 
 
-def degenerate(degs: list[Mutation]) -> Mutation:
+def degenerate(degs: List[Mutation]) -> Mutation:
     '''Returns a degenerated Mutation'''
     m = degs[0]
     result = Mutation(m.chromosome, m.position, m.reference, '', 0)
@@ -266,7 +267,7 @@ iupac_names = {
     'ACGT': 'N'}
 
 
-def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
+def apply_indel(seq: List[str], indel: Mutation) -> List[str]:
     '''Insert or delete the indel in the consensus'''
     if indel.is_insertion():
         index = indel.position - 1
@@ -277,7 +278,7 @@ def apply_indel(seq: list[str], indel: Mutation) -> list[str]:
     return seq
 
 
-def write_consensus(consensus: dict[str, (str, str)], out: File, split: str, width: int) -> None:
+def write_consensus(consensus: Dict[str, Tuple[str, str]], out: File, split: str, width: int) -> None:
     '''Write the consensus sequences to Fasta file'''
     for chrom in consensus:
         name, seq = consensus[chrom]
@@ -292,18 +293,18 @@ def write_consensus(consensus: dict[str, (str, str)], out: File, split: str, wid
                 write_fasta(fasta, f)
 
 
-def write_fasta(lines: list[str], out: File) -> None:
+def write_fasta(lines: List[str], out: File) -> None:
     '''Writes lines to the file'''
     for line in lines:
         out.write(f'{line}\n')
 
 
-def fasta_format(seq: str, width: int) -> list[str]:
+def fasta_format(seq: str, width: int) -> List[str]:
     '''Get a sequence and returns a list of subsequence of specified len'''
     return [seq[i:width+i] for i in range(0, len(seq), width)]
 
 
-def write_muts(muts: list[Mutation], muts_file: File):
+def write_muts(muts: List[Mutation], muts_file: File):
     muts_file.write(
         '#Chromosome\tPosition\tReference\tAlteration\tFrequency\n')
     for mut in muts:
