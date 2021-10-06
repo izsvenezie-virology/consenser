@@ -6,7 +6,7 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -79,9 +79,9 @@ def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, 
 
     write_consensus(consensus, output, split, width)
     if snps:
-        write_muts(consensus_snps, snps)
+        write_muts(consensus_snps, snps, alter_names)
     if indels:
-        write_muts(consensus_indels, indels)
+        write_muts(consensus_indels, indels, alter_names)
 
 
 def parse_limits(deg: bool, snp_lim: str, indels_lim: float) -> Tuple[float, float, float]:
@@ -304,10 +304,12 @@ def fasta_format(seq: str, width: int) -> List[str]:
     return [seq[i:width+i] for i in range(0, len(seq), width)]
 
 
-def write_muts(muts: List[Mutation], muts_file: File):
+def write_muts(muts: List[Mutation], muts_file: File, alter_names: str):
     muts_file.write(
         '#Chromosome\tPosition\tReference\tAlteration\tFrequency\n')
     for mut in muts:
+        if alter_names:
+            mut.chromosome = alter_names.replace("CHROMNAME", mut.chromosome)
         muts_file.write(f'{mut}\n')
 
 
