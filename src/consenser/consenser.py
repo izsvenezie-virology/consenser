@@ -6,7 +6,7 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -125,6 +125,8 @@ def read_coverage(cov_file: File, min_cov: int) -> Dict[str, List[int]]:
         chrom, pos, cov = line.split('\t')
         if chrom not in chroms_cov:
             chroms_cov[chrom] = []
+        if 'e' in cov:
+            cov = float(cov.replace(',', '.'))
         if int(cov) < min_cov:
             chroms_cov[chrom].append(int(pos))
     return chroms_cov

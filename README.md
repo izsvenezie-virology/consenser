@@ -55,7 +55,7 @@ These indicates the lower and upper limit of nucleotides frequency (in percentag
 Nucleotides are used with the following rules:
 * If the nucleotide frequence is lower than the lower limit, is discarded.
 * If the nucleotide frequence is higher than the upper limit, is reported in the consensus.
-* If the nucleotide frequence is between the two limits, is used in the degeneration.
+* If the nucleotide frequence is between the two limits included, is used in the degeneration.
 
 You shuold use a specular interval (eg. ```--deg 25 75```), you are free to do what you want, but I can't assure the results are correct.
 
