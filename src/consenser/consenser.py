@@ -6,7 +6,7 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -106,12 +106,13 @@ def parse_lim_range(snp_lim: str, deg: bool) -> Tuple[float, float]:
 def parse_lim_value(snp_lim: str, deg: bool) -> Tuple[float, float]:
     lim = float(snp_lim)
     if deg:
-        return (lim, 100-lim)
-    return (lim, lim)
+        raise ClickException(
+            f"When option --deg is specified a limit range must be provided: --snp-lim {snp_lim}")
+    return (25.0, lim)
 
 
 def parse_lim_default(deg: bool) -> Tuple[float, float]:
-    defaults = {True: (25.0, 75.0), False: (50.0, 50.0)}
+    defaults = {True: (25.0, 75.0), False: (25.0, 50.0)}
     return defaults[deg]
 
 
