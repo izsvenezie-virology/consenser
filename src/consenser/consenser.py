@@ -6,7 +6,7 @@ from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.4'
+__version__ = '0.1.6'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -54,10 +54,11 @@ def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, 
     \b
     REFERENCE           Reference used during alignment in Fasta format.\b    
     VCF                 VCF file.'''
+
     af_lims = parse_limits(deg, snp_lim, indel_lim)
-    cov_by_chrom = read_coverage(coverage, min_cov)
     ref_by_chrom = read_reference(reference)
     vcf_by_chrom = read_vcf(vcf)
+    cov_by_chrom = read_coverage(coverage, min_cov)
     chroms = ref_by_chrom.keys()
 
     consensus = {}
@@ -65,9 +66,9 @@ def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, 
     consensus_indels = []
 
     for chrom in chroms:
-        chrom_cov = cov_by_chrom.get(chrom, [])
-        chrom_vcf = vcf_by_chrom.get(chrom, [])
         chrom_ref = ref_by_chrom.get(chrom)
+        chrom_vcf = vcf_by_chrom.get(chrom, [])
+        chrom_cov = cov_by_chrom.get(chrom, [])
         cons_seq, chrom_snps, chrom_indels = create_consensus_sequence(
             chrom_ref, chrom_vcf, chrom_cov, af_lims)
         cons_name = chrom
@@ -105,12 +106,13 @@ def parse_lim_range(snp_lim: str, deg: bool) -> Tuple[float, float]:
 def parse_lim_value(snp_lim: str, deg: bool) -> Tuple[float, float]:
     lim = float(snp_lim)
     if deg:
-        return (lim, 100-lim)
-    return (lim, lim)
+        raise ClickException(
+            f"When option --deg is specified a limit range must be provided: --snp-lim {snp_lim}")
+    return (25.0, lim)
 
 
 def parse_lim_default(deg: bool) -> Tuple[float, float]:
-    defaults = {True: (25.0, 75.0), False: (50.0, 50.0)}
+    defaults = {True: (25.0, 75.0), False: (25.0, 50.0)}
     return defaults[deg]
 
 
@@ -307,12 +309,12 @@ def fasta_format(seq: str, width: int) -> List[str]:
 
 
 def write_muts(muts: List[Mutation], muts_file: File, alter_names: str):
-    muts_file.write(
-        '#Chromosome\tPosition\tReference\tAlteration\tFrequency\n')
+    mut_str = '#Chromosome\tPosition\tReference\tAlteration\tFrequency\n'
     for mut in muts:
         if alter_names:
             mut.chromosome = alter_names.replace("CHROMNAME", mut.chromosome)
-        muts_file.write(f'{mut}\n')
+        mut_str += f'{mut}\n'
+    muts_file.write(mut_str)
 
 
 if __name__ == '__main__':
