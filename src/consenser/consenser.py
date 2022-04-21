@@ -1,12 +1,13 @@
 #! /usr/bin/env python3
 
+from email.policy import default
 from typing import Dict, List, Tuple
 import click
 from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
 
-__version__ = '0.1.6'
+__version__ = '0.1.7'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -44,19 +45,20 @@ class Mutation():
 @click.option('-w', '--width', type=int, default=70, show_default=True, help='The width of the Fasta files in output.')
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
+@click.option('-t', '--trim-name', type=str, default=None, help='Set the symbol to trim the reference names. ')
 @click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-75.0 with --deg]')
 @click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
 @click.argument('reference', type=File('r'))
 @click.argument('vcf', type=File('r'))
 def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, snps: File, deg: bool,
-        min_cov: int, width: int, split: Path, alter_names: str, snp_lim: str, indel_lim: float):
+        min_cov: int, width: int, split: Path, alter_names: str, trim_name: str, snp_lim: str, indel_lim: float):
     '''Creates a consensus sequence from the reference and the VCF file.
     \b
     REFERENCE           Reference used during alignment in Fasta format.\b    
     VCF                 VCF file.'''
 
     af_lims = parse_limits(deg, snp_lim, indel_lim)
-    ref_by_chrom = read_reference(reference)
+    ref_by_chrom = read_reference(reference, trim_name)
     vcf_by_chrom = read_vcf(vcf)
     cov_by_chrom = read_coverage(coverage, min_cov)
     chroms = ref_by_chrom.keys()
@@ -134,14 +136,16 @@ def read_coverage(cov_file: File, min_cov: int) -> Dict[str, List[int]]:
     return chroms_cov
 
 
-def read_reference(ref_file: File) -> Dict[str, str]:
+def read_reference(ref_file: File, trim_name: str) -> Dict[str, str]:
     '''Reads the reference from a Fasta file and return the sequence by name'''
     chroms_ref = {}
     for line in ref_file.read().split('\n'):
         if line == '':
             continue
         if line.startswith('>'):
-            chrom_name = line[1:]
+            chrom_name: str = line[1:]
+            if trim_name is not None:
+                chrom_name = chrom_name.split(trim_name)[0]
             chroms_ref[chrom_name] = ''
             continue
         chroms_ref[chrom_name] += line
