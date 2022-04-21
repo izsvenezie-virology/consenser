@@ -1,6 +1,5 @@
 #! /usr/bin/env python3
 
-from email.policy import default
 from typing import Dict, List, Tuple
 import click
 from click.exceptions import ClickException
