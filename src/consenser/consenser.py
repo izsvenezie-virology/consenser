@@ -5,8 +5,9 @@ import click
 from click.exceptions import ClickException
 from click.types import File, Path
 from copy import deepcopy
+import sys
 
-__version__ = '0.1.7'
+__version__ = '0.1.8'
 __author__ = 'EdoardoGiussani'
 __contact__ = 'egiussani@izsvenezie.it'
 
@@ -45,12 +46,13 @@ class Mutation():
 @click.option('-s', '--split', type=Path(), help='Creates a file for each one of the sequences. The keyword "CHROMNAME" in the path will be replaced with the original sequence name.')
 @click.option('-a', '--alter_names', type=str, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
 @click.option('-t', '--trim-name', type=str, default=None, help='Set the symbol to trim the reference names. ')
+@click.option('-f', '--force', is_flag=True, default=False, help='Force consensus production if inconsistencies detected.')
 @click.option('--snp-lim', type=str, default=None, help='Set the limits for snps. [default: 50.0; 25.0-75.0 with --deg]')
 @click.option('--indel-lim', type=float, default=50.0, show_default=True, help='Set the minimum limit to consider an indel.')
 @click.argument('reference', type=File('r'))
 @click.argument('vcf', type=File('r'))
 def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, snps: File, deg: bool,
-        min_cov: int, width: int, split: Path, alter_names: str, trim_name: str, snp_lim: str, indel_lim: float):
+        min_cov: int, width: int, split: Path, alter_names: str, trim_name: str, force: bool, snp_lim: str, indel_lim: float):
     '''Creates a consensus sequence from the reference and the VCF file.
     \b
     REFERENCE           Reference used during alignment in Fasta format.\b    
@@ -61,6 +63,8 @@ def cli(reference: File, vcf: File, coverage: File, output: File, indels: File, 
     vcf_by_chrom = read_vcf(vcf)
     cov_by_chrom = read_coverage(coverage, min_cov)
     chroms = ref_by_chrom.keys()
+
+    detect_inconsistency(chroms, vcf_by_chrom.keys(), cov_by_chrom.keys(), (coverage), force)
 
     consensus = {}
     consensus_snps = []
@@ -318,6 +322,33 @@ def write_muts(muts: List[Mutation], muts_file: File, alter_names: str):
             mut.chromosome = alter_names.replace("CHROMNAME", mut.chromosome)
         mut_str += f'{mut}\n'
     muts_file.write(mut_str)
+
+
+def detect_inconsistency(chroms_ref: List[str], chroms_vcf: List[str], chroms_cov: List[str], coverage: File, force: bool) -> None:
+    inconsistency_detected = False
+    for chrom in list(set(chroms_ref).difference(chroms_vcf)):
+        print(f'WARNING: no mutations detected for chromosome {chrom}', file=sys.stderr)
+        inconsistency_detected = True
+    for chrom in list(set(chroms_vcf).difference(chroms_ref)):
+        print(f'WARNING: mutations detected in chromosome not present in reference: {chrom}', file=sys.stderr)
+        inconsistency_detected = True
+    if coverage:
+        for chrom in list(set(chroms_ref).difference(chroms_cov)):
+            print(f'WARNING: no coverage data for chromosome {chrom}', file=sys.stderr)
+            inconsistency_detected = True
+        for chrom in list(set(chroms_cov).difference(chroms_ref)):
+            print(f'WARNING: coverage detected in chromosome not present in reference: {chrom}', file=sys.stderr)
+            inconsistency_detected = True
+
+    if not inconsistency_detected:
+        return
+    print(f'ERROR: Inconsistencies detected.', file=sys.stderr)
+    if force:
+        print('INFO: Force option enabled: producing consensus sequence.', file=sys.stderr)
+        print('WARNING: results may be incorrect.', file=sys.stderr)
+        return
+    print('To force production of consensus sequence use the --force option, results could be not corrected.', file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == '__main__':
