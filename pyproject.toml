@@ -1,9 +1,24 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64"]
+
 [project]
+authors = [
+  {name = "Edoardo Giussani", email = "egiussani@izsvenezie.it"},
+]
+dependencies = [
+  "click>=8.1.8",
+]
+description = "Create a consensus sequence from a VCF file produced by LoFreq."
+dynamic = ["version"]
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 name = "consenser"
-version = "0.1.0"
-description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = [
-    "click>=8.1.8",
-]
+
+[project.scripts]
+consenser = "consenser:cli"
+
+[tool.setuptools.dynamic]
+version = {attr = "consenser.__version__.__version__"}
