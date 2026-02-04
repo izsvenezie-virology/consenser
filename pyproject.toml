@@ -11,8 +11,7 @@ dependencies = [
 ]
 description = "Create a consensus sequence from a VCF file produced by LoFreq."
 dynamic = ["version"]
-license = "AGPL-3.0-or-later"
-license-files = ["LICENSE"]
+license = {file = "LICENSE"}
 name = "consenser"
 readme = "README.md"
 requires-python = ">=3.8"
