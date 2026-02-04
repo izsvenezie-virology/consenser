@@ -21,3 +21,8 @@ consenser = "consenser:cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "consenser.__version__.__version__"}
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

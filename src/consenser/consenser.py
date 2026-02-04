@@ -89,7 +89,7 @@ def read_vcf(vcf_file) -> Dict[str, Dict[int, List[Mutation]]]:
         chrom, pos, _, ref, alt, _, _, info = line.split("\t")
         af = [i for i in info.split(";") if i.startswith("AF=")][0][3:]
 
-        mut = Mutation(chrom, int(pos), ref, alt, af)
+        mut = Mutation(chrom, int(pos), ref, alt, float(af))
         vcf[chrom][pos].append(mut)
     return vcf
 
