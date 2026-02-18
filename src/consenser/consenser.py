@@ -1,12 +1,13 @@
 #! /usr/bin/env python3
 
 from collections import defaultdict, namedtuple
-from typing import Dict, List
+from decimal import Decimal
+from typing import Dict, List, Optional, TextIO
 
 import click
 from click.types import File
 
-from consenser.__version__ import __version__
+from .__version__ import __version__
 
 # fmt: off
 WIDTH = 70
@@ -27,33 +28,44 @@ Thresholds = namedtuple("Thresholds", ["lower", "indel", "coverage"])
 Mutation = namedtuple("Mutation", ["chrom", "pos", "ref", "alt", "freq"])
 
 
-def main(reference, vcf, output, cov, min_cov, header, snp_freq, indel_freq):
-    thresholds = Thresholds(
-        snp_freq,
-        indel_freq,
-        min_cov,
-    )
+class MalformedFasta(Exception):
+    def __init__(self) -> None:
+        message = "Reference Fasta file is not correctly formatted"
+        super().__init__(message)
 
-    sequences = read_fasta(reference)
-    variants = read_vcf(vcf)
-    coverage = read_coverage(cov)
 
-    consensus = {}
+def main(
+    reference_file: TextIO,
+    vcf_file: TextIO,
+    output: TextIO,
+    coverage_file: TextIO,
+    header: str,
+    minimum_coverage: int,
+    snp_threshold: float,
+    indel_threshold: float,
+):
+    sequences = read_fasta(reference_file)
+    variants = read_vcf(vcf_file)
+    coverage = read_coverage(coverage_file)
+
+    thresholds = Thresholds(snp_threshold, indel_threshold, minimum_coverage)
+
+    consensus: Dict[str, str] = {}
 
     for chrom in sequences.keys():
         cons_seq = create_consensus_sequence(
-            sequences.get(chrom),
-            variants.get(chrom, []),
+            sequences.get(chrom, ""),
+            variants.get(chrom, {}),
             coverage.get(chrom, []),
             thresholds,
         )
-        cons_name = header.replace("CHROMNAME", chrom)
+        cons_name = header.replace("CHROM", chrom)
         consensus[cons_name] = cons_seq
 
     write_consensus(consensus, output)
 
 
-def read_coverage(cov_file) -> Dict[str, List[int]]:
+def read_coverage(cov_file: TextIO) -> Dict[str, List[int]]:
     chroms_cov: Dict[str, List[int]] = defaultdict(list)
     if not cov_file:
         return chroms_cov
@@ -63,11 +75,11 @@ def read_coverage(cov_file) -> Dict[str, List[int]]:
         chrom, pos, cov = line.split("\t")
         if "e" in cov:
             cov = 1_000_000_000
-        chroms_cov[chrom].append(int(pos))
+        chroms_cov[chrom].append(int(cov))
     return chroms_cov
 
 
-def read_fasta(reference_file) -> Dict[str, str]:
+def read_fasta(reference_file: TextIO) -> Dict[str, str]:
     reference = {}
     for line in reference_file.read().split("\n"):
         if not line:
@@ -76,20 +88,24 @@ def read_fasta(reference_file) -> Dict[str, str]:
             chrom_name = line[1:]
             reference[chrom_name] = ""
             continue
-        reference[chrom_name] += line
+        try:
+            reference[chrom_name] += line  # type: ignore
+        except UnboundLocalError:
+            raise MalformedFasta() from None
     return reference
 
 
-def read_vcf(vcf_file) -> Dict[str, Dict[int, List[Mutation]]]:
+def read_vcf(vcf_file: TextIO) -> Dict[str, Dict[int, List[Mutation]]]:
     vcf: Dict[str, Dict[int, List[Mutation]]] = defaultdict(lambda: defaultdict(list))
     for line in vcf_file.read().split("\n"):
         if not line or line.startswith("#"):
             continue
 
         chrom, pos, _, ref, alt, _, _, info = line.split("\t")
+        pos = int(pos)
         af = [i for i in info.split(";") if i.startswith("AF=")][0][3:]
 
-        mut = Mutation(chrom, int(pos), ref, alt, float(af))
+        mut = Mutation(chrom, pos, ref, alt, Decimal(af))
         vcf[chrom][pos].append(mut)
     return vcf
 
@@ -102,12 +118,12 @@ def create_consensus_sequence(
 ):
     seq = list(chrom_seq)
 
-    for index in range(len(seq), 0, -1):
-        if cov[index] < thresholds.coverage:
+    for index in range(len(seq) - 1, -1, -1):
+        if cov and cov[index] < thresholds.coverage:
             seq[index] = "N"
             continue
 
-        variants = vcf[index + 1]
+        variants = vcf.get(index + 1, [])
         snp = get_snp(variants, thresholds)
         if snp:
             seq[index] = snp
@@ -119,14 +135,14 @@ def create_consensus_sequence(
     return "".join(seq)
 
 
-def get_indels(muts: List[Mutation], thresholds: Thresholds) -> Mutation:
+def get_indels(muts: List[Mutation], thresholds: Thresholds) -> Optional[Mutation]:
     """Returns the indel to insert/delete from consensus sequence"""
     indels = [m for m in muts if len(m.ref + m.alt) > 2 and m.freq >= thresholds.indel]
-    indels.sort(key=lambda m: m.frequency, reverse=True)
+    indels.sort(key=lambda m: m.freq, reverse=True)
     return indels[0] if indels else None
 
 
-def get_snp(muts: List[Mutation], thresholds: Thresholds) -> str:
+def get_snp(muts: List[Mutation], thresholds: Thresholds) -> Optional[str]:
     """Creates the snp that best fits parameters"""
     snps = [m for m in muts if len(m.ref + m.alt) == 2]
     if not snps:
@@ -148,11 +164,11 @@ def get_snp(muts: List[Mutation], thresholds: Thresholds) -> str:
             higher_freq = snp.freq
 
     if ref_freq >= thresholds.lower:
-        nucleotides.append(snp.ref)
+        nucleotides.append(snps[0].ref)
     if ref_freq == higher_freq:
-        higher_nucl += snp.ref
+        higher_nucl += snps[0].ref
     if ref_freq > higher_freq:
-        higher_nucl = snp.ref
+        higher_nucl = snps[0].ref
 
     if not nucleotides:
         nucleotides = higher_nucl
@@ -170,10 +186,10 @@ def apply_indel(seq: List[str], indel: Mutation) -> List[str]:
     return seq
 
 
-def write_consensus(consensus: Dict[str, str], out: File) -> None:
+def write_consensus(consensus: Dict[str, str], out: TextIO) -> None:
     """Write the consensus sequences to Fasta file"""
     for header, sequence in consensus.items():
-        out.wirte(f">{header}\n")
+        out.write(f">{header}\n")
         for line in fasta_format(sequence):
             out.write(f"{line}\n")
 
@@ -188,13 +204,13 @@ def fasta_format(seq: str) -> List[str]:
 @click.help_option("-h", "--help")
 @click.version_option(__version__, "-v", "--version", message=f"%(prog)s, version %(version)s, by {__author__} ({__contact__})")
 @click.option("-o", "--output", type=File("w"), default="-", help="The output file. [default: stout]")
-@click.option("-c", "--cov", type=File("r"), default=None, help="The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.")
-@click.option("-H", "--header", type=str, default="CHROMNAME", show_default=True, help='Replace the sequence name. The keyword "CHROMNAME" will be replaced with the original sequence name.')
-@click.option("-m", "--min-cov", type=int, default=10, show_default=True, help="Minimum coverage to not mask a base.")
-@click.option("-t", "--snp-threshold", type=float, default=0.25, show_default=True, help="Minimum SNP frequency to be considered.")
-@click.option("-i", "--indel-threshold", type=float, default=0.50, show_default=True, help="Minimum INDELs frequency to be considered.")
-@click.argument("reference", type=File("r"))
-@click.argument("vcf", type=File("r"))
+@click.option("-c", "--coverage-file", type=File("r"), default=None, help="The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.")
+@click.option("-H", "--header", type=str, default="CHROM", show_default=True, help='Replace the sequence name. The keyword "CHROM" will be replaced with the original sequence name.')
+@click.option("-m", "--minimum-coverage", type=int, default=10, show_default=True, help="Minimum coverage to not mask a base.")
+@click.option("-t", "--snp-threshold", type=Decimal, default=0.25, show_default=True, help="Minimum SNP frequency to be considered.")
+@click.option("-i", "--indel-threshold", type=Decimal, default=0.50, show_default=True, help="Minimum INDELs frequency to be considered.")
+@click.argument("reference_file", type=File("r"))
+@click.argument("vcf_file", type=File("r"))
 def cli(**kwargs):
     """Creates a consensus sequence from the reference and the VCF file.
     \b
