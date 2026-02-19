@@ -7,8 +7,6 @@ from typing import Dict, List, Optional, TextIO
 import click
 from click.types import File
 
-from .__version__ import __version__
-
 # fmt: off
 WIDTH = 70
 IUPAC = {
@@ -23,6 +21,7 @@ IUPAC = {
 
 __author__ = "EdoardoGiussani"
 __contact__ = "egiussani@izsvenezie.it"
+__version__ = "1.0.0"
 
 Thresholds = namedtuple("Thresholds", ["lower", "indel", "coverage"])
 Mutation = namedtuple("Mutation", ["chrom", "pos", "ref", "alt", "freq"])
