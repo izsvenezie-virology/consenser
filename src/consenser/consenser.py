@@ -206,7 +206,7 @@ def fasta_format(seq: str) -> List[str]:
 @click.option("-c", "--coverage-file", type=File("r"), default=None, help="The coverage file, a tab separated file with Chrom, Position and Coverage columns, without header.")
 @click.option("-H", "--header", type=str, default="CHROM", show_default=True, help='Replace the sequence name. The keyword "CHROM" will be replaced with the original sequence name.')
 @click.option("-m", "--minimum-coverage", type=int, default=10, show_default=True, help="Minimum coverage to not mask a base.")
-@click.option("-t", "--snp-threshold", type=Decimal, default=0.25, show_default=True, help="Minimum SNP frequency to be considered.")
+@click.option("-s", "--snp-threshold", type=Decimal, default=0.25, show_default=True, help="Minimum SNP frequency to be considered.")
 @click.option("-i", "--indel-threshold", type=Decimal, default=0.50, show_default=True, help="Minimum INDELs frequency to be considered.")
 @click.argument("reference_file", type=File("r"))
 @click.argument("vcf_file", type=File("r"))

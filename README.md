@@ -24,7 +24,7 @@ consenser [OPTIONS] REFERENCE_FILE VCF_FILE
 | `-c`, `--coverage-file FILE`       | Tab-separated coverage file with columns: `Chrom`, `Position`, `Coverage` (no header). | not used |
 | `-H`, `--header TEXT`              | Output sequence header template. `CHROM` is replaced with the original contig name.    | `CHROM`  |
 | `-m`, `--minimum-coverage INTEGER` | Minimum coverage required to keep a base; lower values are masked as `N`.              | `10`     |
-| `-t`, `--snp-threshold DECIMAL`    | Minimum SNP allele frequency to include in IUPAC consensus.                            | `0.25`   |
+| `-s`, `--snp-threshold DECIMAL`    | Minimum SNP allele frequency to include in IUPAC consensus.                            | `0.25`   |
 | `-i`, `--indel-threshold DECIMAL`  | Minimum INDEL allele frequency to apply insertion/deletion.                            | `0.50`   |
 | `-v`, `--version`                  | Show version information.                                                              | -        |
 | `-h`, `--help`                     | Show help.                                                                             | -        |
@@ -62,5 +62,5 @@ For SNP calling, `consenser` then builds the consensus base as follows:
 
 ### Avoid Degenerations
 
-Set `-t`, `--snp-threshold` to `1` to force selection of the most frequent SNP at each position.
+Set `-s`, `--snp-threshold` to `1` to force selection of the most frequent SNP at each position.
 Degenerations can still appear when two or more SNPs have exactly the same highest frequency.
