@@ -1,79 +1,66 @@
 # Consenser
-Creates a consensus sequence from a vcf file and a reference.
 
-## Installation:
-To install consenser:
-```
-cd /path/where/download
-git clone https://gitlab.izsvenezie.it/EdoardoGiussani/consenser
+Create a consensus sequence from a reference FASTA and a LoFreq-style VCF.
+
+## Installation
+
+```bash
+git clone https://github.com/izsvenezie-virology/consenser.git
 cd consenser
-python -m pip install .
-```
-To test if it is installed correctly type 
-```
-consenser --help
-```
-and the help page should appear on your screen. 
-If this not happens you can write me threatening letters.
-
-
-### Installation issues
-If you have some problems with SSL Certificates when trying to clone the git repository type:
-```
-git config --global http.sslVerify false
-```
-Don't forget to reactivate SSL Certificates once you cloned it or hackers will steel all your passwords:
-```
-git config --global http.sslVerify true
+python3 -m pip install .
 ```
 
 ## Usage
-To use consenser type:
+
+```bash
+consenser [OPTIONS] REFERENCE_FILE VCF_FILE
 ```
-consenser [OPTIONS] 
+
+## Options
+
+| Option                             | Description                                                                            | Default  |
+| ---------------------------------- | -------------------------------------------------------------------------------------- | -------- |
+| `-o`, `--output FILE`              | Output FASTA file. Use `-` for stdout.                                                 | `-`      |
+| `-c`, `--coverage-file FILE`       | Tab-separated coverage file with columns: `Chrom`, `Position`, `Coverage` (no header). | not used |
+| `-H`, `--header TEXT`              | Output sequence header template. `CHROM` is replaced with the original contig name.    | `CHROM`  |
+| `-m`, `--minimum-coverage INTEGER` | Minimum coverage required to keep a base; lower values are masked as `N`.              | `10`     |
+| `-t`, `--snp-threshold DECIMAL`    | Minimum SNP allele frequency to include in IUPAC consensus.                            | `0.25`   |
+| `-i`, `--indel-threshold DECIMAL`  | Minimum INDEL allele frequency to apply insertion/deletion.                            | `0.50`   |
+| `-v`, `--version`                  | Show version information.                                                              | -        |
+| `-h`, `--help`                     | Show help.                                                                             | -        |
+
+## Inputs
+
+- `REFERENCE_FILE`: FASTA reference used during alignment.
+- `VCF_FILE`: VCF file (expected LoFreq-style `AF=` entries in `INFO`).
+
+## Example
+
+```bash
+consenser \
+  --coverage-file sample.cov \
+  --minimum-coverage 20 \
+  --snp-threshold 0.30 \
+  --indel-threshold 0.60 \
+  --header "sample_CHROM" \
+  --output consensus.fasta \
+  reference.fasta variants.vcf
 ```
-| Option                            | Description                                   | Default           |
-| --------------------------------- | --------------------------------------------- | ----------------- |
-|```-c```/```--coverage FILENAME``` | The coverage file to use, a tab separated file with columns 'Chromosome', 'Position', 'Coverage'. To use the stdin instead of a file use '-'.                 | REQUIRED          |
-|```-r```/```--reference FILENAME```| The reference file in Fasta format. To use the stdin instead of a file use '-'.                                                                                | REQUIRED          |
-|```-v```/```--vcf FILENAME```      | The vcf file. Actually works with the Lofreq vcf format. To use the stdin instead of a file use '-'.                                                                     | REQUIRED          |
-|```-o```/```--output FILENAME```   | The produced consensus file. To print the consensus to stdout use '-'.                                                                                | REQUIRED          |
-|```-d```/```--deg FLOAT FLOAT```   | Upper and lower degeneration limits.          | -                 |
-|```-n```/```--no-deg FLOAT```      | Minimum frequency to report a mutation.       | -                 |
-|```-m```/```--min-cov INT```       | The minimum coverage to report a nucleotide.  | 10                |
-|```-w```/```--width INT```         | Maximum width of the Fasta lines.             | 70                |
-|```-s```/```--split PATH```        | Splits the consensus by chromosome.           | -                 |
-|```-a```/```--alter-names TEXT```  | Change chromosomes name.                      | -                 |
-|```--indels-lim FLOAT```           | Set minimum limit to consider an indel.       | 50.0              |
 
-Options ```--deg``` or ```--no-deg``` are mutually exclusive and required.
+## Degenerations
 
-## Degenerated consensus
-If you want a consensus with IUPAC degenerated bases you shoud use the ```--deg``` option.
-This option requires 2 float numbers. 
-These indicates the lower and upper limit of nucleotides frequency (in percentage).
-Nucleotides are used with the following rules:
-* If the nucleotide frequence is lower than the lower limit, is discarded.
-* If the nucleotide frequence is higher than the upper limit, is reported in the consensus.
-* If the nucleotide frequence is between the two limits included, is used in the degeneration.
+At each position, variants are filtered by thresholds:
 
-You shuold use a specular interval (eg. ```--deg 25 75```), you are free to do what you want, but I can't assure the results are correct.
+- SNPs with `AF < --snp-threshold` are excluded from the IUPAC set.
+- INDELs with `AF < --indel-threshold` are ignored.
 
-In the degeneration conversion is also considered the reference base (if frequency is higher than lower limit).
+For SNP calling, `consenser` then builds the consensus base as follows:
 
-## Non degenerated consensus
-If you want a consensus with only A, C, T, G and N use the option ```--no-deg```. 
-This option requires a limit (in percentage).
+- If one or more SNPs (including reference) pass the SNP threshold, they are converted to an IUPAC code.
+- If no SNP passes the threshold, the most frequent SNP is used.
+- If two or more SNPs are tied as most frequent, a degenerate IUPAC base is still produced.
 
-* If the nucleotide frequency is greater than the limit the nucleotide is reported in the consensus.
-* If none of the nucleotides is greater than the limit the reference nucleotide is reported in the consensus.
+### Avoid Degenerations
 
-The suggested value is ```--no-deg 50```. You can use an higher percentage, but not a lower percentage because it's nonsense and the results will be probably wrong.
-
-## Minimum coverage
-With the option ```--min-cov``` you can set the threshold for mask the low covered positions.
-Positions with a coverage below the treshold is masked with the base "N". 
-
-To skip this check use ```--min-cov 0```.
-
-
+Set `-t`, `--snp-threshold` to `1` to force selection of the most frequent SNP at each position.
+Degenerations can still appear when two or more SNPs have exactly the same highest frequency.
